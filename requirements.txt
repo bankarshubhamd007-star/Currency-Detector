@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+torch
+torchvision
+transformers
+pillow
+requests
+numpy
+python-multipart
+huggingface_hub
+timm
+scikit-image

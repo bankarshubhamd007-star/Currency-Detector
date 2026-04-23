@@ -1,0 +1,21 @@
+# Environments
+venv/
+env/
+.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project Specific Data & Models
+feedback_dataset/
+improved_model/
+temp_improved_model/
+fix/
+
+# OS & IDE Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

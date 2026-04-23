@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CurrencyGuard — AI Authentication</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&family=Playfair+Display:ital,wght@0,900;1,900&display=swap" rel="stylesheet">
+
+<style>
+/* ── RESET ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --bg: #0c0f0a; --bg-glass: rgba(19, 23, 16, 0.82); --surface: #1a1f16; --surface-2: #222a1d;
+  --border: rgba(180, 160, 90, 0.18); --gold: #c8a84b; --text-1: #f0ead8; --text-2: #9a9585;
+  --success: #5a9a6a; --success-bg: rgba(90, 154, 106, 0.12);
+  --danger: #c05a4a; --danger-bg: rgba(192, 90, 74, 0.12);
+}
+
+body { font-family: 'Outfit', sans-serif; background-color: var(--bg); color: var(--text-1); min-height: 100vh; }
+
+/* ── LAYOUT ── */
+.app-container { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; min-height: 100vh; }
+header { display: flex; align-items: center; justify-content: space-between; padding: 1.5rem 2rem; background: var(--bg-glass); border-bottom: 1px solid var(--border); }
+.logo { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: var(--gold); text-decoration: none; font-weight: 900; }
+
+/* ── VIEWS ── */
+.view { display: none; padding: 3rem 2rem; animation: fadeIn 0.5s ease; }
+.view.active { display: flex; flex-direction: column; align-items: center; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── UPLOAD ── */
+.hero { text-align: center; margin-bottom: 3rem; }
+.hero h1 { font-family: 'Playfair Display', serif; font-size: 3.5rem; margin-bottom: 1rem; }
+.hero h1 em { color: var(--gold); font-style: italic; }
+
+.upload-card { background: var(--surface); border: 1px solid var(--border); border-radius: 24px; padding: 2.5rem; width: 100%; max-width: 600px; }
+.drop-zone { border: 2px dashed var(--border); border-radius: 16px; padding: 4rem 2rem; text-align: center; cursor: pointer; background: var(--surface-2); }
+.drop-zone:hover { border-color: var(--gold); }
+.url-input { width: 100%; padding: 1rem; margin-top: 1.5rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; color: #fff; font-family: 'Space Mono', monospace; }
+.btn-analyze { width: 100%; margin-top: 1.5rem; padding: 1.2rem; background: var(--gold); border: none; border-radius: 12px; font-weight: 800; cursor: pointer; }
+
+/* ── RESULT ── */
+.result-layout { display: flex; gap: 3rem; width: 100%; align-items: flex-start; }
+.result-img-box { flex: 1; border-radius: 20px; overflow: hidden; border: 1px solid var(--border); }
+.result-img-box img { width: 100%; display: block; }
+.result-info { flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
+.verdict-box { padding: 2rem; border-radius: 20px; text-align: center; border: 1px solid; }
+.verdict-box.real { background: var(--success-bg); border-color: var(--success); color: var(--success); }
+.verdict-box.fake { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.verdict-title { font-family: 'Playfair Display', serif; font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+.loading-overlay { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; z-index: 1000; }
+
+@media (max-width: 800px) { .result-layout { flex-direction: column; } }
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  <header>
+    <a href="#" class="logo" onclick="location.reload()">CurrencyGuard</a>
+  </header>
+
+  <div id="loading" class="loading-overlay">
+    <div style="color:var(--gold); font-family:'Space Mono'; letter-spacing:4px;">ANALYSING...</div>
+  </div>
+
+  <main id="view-upload" class="view active">
+    <div class="hero">
+      <h1>Verify Your<br><em>Banknotes</em></h1>
+      <p style="color:var(--text-2)">Official AI Authentication for Indian Currency</p>
+    </div>
+    <div class="upload-card">
+      <div class="drop-zone" id="dropZone">
+        <span style="font-size:3rem">📸</span>
+        <div id="file-label">Click or Drag to Upload</div>
+      </div>
+      <input type="file" id="fileInput" style="display:none" accept="image/*">
+      <input type="text" id="urlInput" class="url-input" placeholder="Or paste image URL...">
+      <button class="btn-analyze" id="analyzeBtn">AUTHENTICATE NOW →</button>
+    </div>
+  </main>
+
+  <main id="view-result" class="view">
+    <div class="result-layout">
+      <div class="result-img-box">
+        <img id="resImg" src="">
+      </div>
+      <div class="result-info">
+        <div id="verdictCard" class="verdict-box">
+          <span style="font-family:'Space Mono'; font-size:0.8rem; opacity:0.8">AUTHENTICATION RESULT</span>
+          <h2 id="verdictText" class="verdict-title">REAL</h2>
+          <div style="font-family:'Space Mono'">Confidence: <span id="confVal">0</span>%</div>
+        </div>
+        
+        <!-- Feedback Section -->
+        <div id="feedbackSection" style="background:var(--surface); border:1px solid var(--border); padding:1.5rem; border-radius:20px; text-align:center;">
+          <p style="font-size:0.9rem; margin-bottom:1rem; color:var(--text-2)">Is this prediction wrong?</p>
+          <div style="display:flex; gap:1rem;">
+            <button class="btn-analyze" id="feedbackReal" style="margin-top:0; padding:0.8rem; background:var(--success-bg); color:var(--success); border:1px solid var(--success)">IT'S ACTUALLY REAL</button>
+            <button class="btn-analyze" id="feedbackFake" style="margin-top:0; padding:0.8rem; background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger)">IT'S ACTUALLY FAKE</button>
+          </div>
+        </div>
+
+        <button class="btn-analyze" style="background:var(--surface-2); color:#fff; border:1px solid var(--border)" onclick="location.reload()">← SCAN ANOTHER</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const analyzeBtn = document.getElementById('analyzeBtn');
+const urlInput = document.getElementById('url-input');
+let currentFile = null;
+
+dropZone.onclick = () => fileInput.click();
+fileInput.onchange = (e) => { if(e.target.files[0]) { currentFile = e.target.files[0]; document.getElementById('file-label').textContent = currentFile.name; } };
+
+analyzeBtn.onclick = async () => {
+  const url = document.getElementById('urlInput').value.trim();
+  if(!currentFile && !url) return alert("Please provide an image");
+
+  document.getElementById('loading').style.display = 'flex';
+  const fd = new FormData();
+  if(currentFile) fd.append('file', currentFile);
+  else fd.append('image_url', url);
+
+  try {
+    const res = await fetch('/predict', { method: 'POST', body: fd });
+    const data = await res.json();
+    
+    document.getElementById('resImg').src = currentFile ? URL.createObjectURL(currentFile) : url;
+    document.getElementById('verdictCard').className = `verdict-box ${data.is_real ? 'real' : 'fake'}`;
+    document.getElementById('verdictText').textContent = data.prediction.toUpperCase();
+    document.getElementById('confVal').textContent = data.confidence;
+    
+    document.getElementById('view-upload').classList.remove('active');
+    document.getElementById('view-result').classList.add('active');
+
+    // Handle Feedback
+    const setupFeedback = (btnId, label) => {
+      document.getElementById(btnId).onclick = async () => {
+        const fbData = new FormData();
+        fbData.append('correct_label', label);
+        fbData.append('image_url', document.getElementById('resImg').src);
+        
+        const fRes = await fetch('/feedback', { method: 'POST', body: fbData });
+        const fJson = await fRes.json();
+        alert(fJson.message);
+        document.getElementById('feedbackSection').style.opacity = '0.5';
+        document.getElementById('feedbackSection').style.pointerEvents = 'none';
+      };
+    };
+    setupFeedback('feedbackReal', 'Real');
+    setupFeedback('feedbackFake', 'Fake');
+
+  } catch (err) { alert("Analysis failed"); }
+  document.getElementById('loading').style.display = 'none';
+};
+</script>
+</body>
+</html>
