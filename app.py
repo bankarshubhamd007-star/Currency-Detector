@@ -12,7 +12,6 @@ import numpy as np
 from torchvision import transforms
 
 import os
-import shutil
 import uuid
 import hashlib
 
@@ -21,8 +20,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 FEEDBACK_DIR = Path("feedback_dataset")
+TEMP_IMAGE_DIR = Path("temp_uploads")
 for label in ["Real", "Fake"]:
     (FEEDBACK_DIR / label).mkdir(parents=True, exist_ok=True)
+TEMP_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Indian Currency Detection", version="1.0.0")
 
@@ -43,6 +44,36 @@ manual_transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
+
+
+def save_temp_image(img_bytes: bytes) -> str:
+    temp_id = str(uuid.uuid4())
+    (TEMP_IMAGE_DIR / f"{temp_id}.img").write_bytes(img_bytes)
+    return temp_id
+
+
+def load_image_bytes(image_temp_id: Optional[str] = None, image_url: Optional[str] = None) -> bytes:
+    if image_temp_id:
+        temp_path = TEMP_IMAGE_DIR / f"{image_temp_id}.img"
+        if not temp_path.exists():
+            raise HTTPException(status_code=404, detail="Temporary image not found")
+        return temp_path.read_bytes()
+
+    if image_url:
+        resp = requests.get(image_url, timeout=10)
+        resp.raise_for_status()
+        return resp.content
+
+    raise HTTPException(status_code=400, detail="No image provided")
+
+
+def delete_temp_image(image_temp_id: Optional[str]) -> None:
+    if not image_temp_id:
+        return
+
+    temp_path = TEMP_IMAGE_DIR / f"{image_temp_id}.img"
+    if temp_path.exists():
+        temp_path.unlink()
 
 def load_model():
     global model, image_processor
@@ -86,14 +117,14 @@ async def predict(
     try:
         if file:
             img_bytes = await file.read()
-            image = Image.open(io.BytesIO(img_bytes))
         elif image_url:
-            resp = requests.get(image_url, timeout=10)
-            image = Image.open(io.BytesIO(resp.content))
+            img_bytes = load_image_bytes(image_url=image_url)
         else:
             raise HTTPException(status_code=400, detail="No image provided")
 
+        image = Image.open(io.BytesIO(img_bytes))
         if image.mode != "RGB": image = image.convert("RGB")
+        image_temp_id = save_temp_image(img_bytes)
         
         # Preprocess
         if image_processor:
@@ -114,8 +145,10 @@ async def predict(
             "prediction": labels.get(pred_class, "Unknown"),
             "confidence": round(conf, 2),
             "is_real": pred_class == 0,
-            "image_temp_id": str(uuid.uuid4()) # ID to track this image for feedback
+            "image_temp_id": image_temp_id
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Prediction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -123,12 +156,14 @@ async def predict(
 @app.post("/feedback")
 async def feedback(
     correct_label: str = Form(...),
-    image_url: str = Form(...)
+    image_temp_id: Optional[str] = Form(None),
+    image_url: Optional[str] = Form(None)
 ):
     try:
-        # Download the image to check its "fingerprint"
-        resp = requests.get(image_url, timeout=10)
-        img_content = resp.content
+        if correct_label not in {"Real", "Fake"}:
+            raise HTTPException(status_code=400, detail="Invalid feedback label")
+
+        img_content = load_image_bytes(image_temp_id=image_temp_id, image_url=image_url)
         
         # Calculate unique hash (Digital Fingerprint)
         img_hash = hashlib.sha256(img_content).hexdigest()
@@ -143,6 +178,7 @@ async def feedback(
         
         if already_exists:
             logger.info(f"Skipping duplicate feedback image: {img_hash[:8]}")
+            delete_temp_image(image_temp_id)
             return {"status": "success", "message": "We already have this image in our database! Thank you."}
 
         # Save the new unique image
@@ -151,7 +187,11 @@ async def feedback(
             f.write(img_content)
             
         logger.info(f"✓ Saved NEW unique feedback image: {img_hash[:8]}")
+        delete_temp_image(image_temp_id)
         return {"status": "success", "message": "Thank you! New unique feedback saved."}
+    except HTTPException as e:
+        logger.error(f"Feedback error: {e.detail}")
+        return {"status": "error", "message": e.detail}
     except Exception as e:
         logger.error(f"Feedback error: {e}")
         return {"status": "error", "message": str(e)}

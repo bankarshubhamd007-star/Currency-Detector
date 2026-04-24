@@ -114,14 +114,16 @@ header { display: flex; align-items: center; justify-content: space-between; pad
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const analyzeBtn = document.getElementById('analyzeBtn');
-const urlInput = document.getElementById('url-input');
+const urlInput = document.getElementById('urlInput');
 let currentFile = null;
+let currentImageTempId = null;
+let currentImageUrl = null;
 
 dropZone.onclick = () => fileInput.click();
 fileInput.onchange = (e) => { if(e.target.files[0]) { currentFile = e.target.files[0]; document.getElementById('file-label').textContent = currentFile.name; } };
 
 analyzeBtn.onclick = async () => {
-  const url = document.getElementById('urlInput').value.trim();
+  const url = urlInput.value.trim();
   if(!currentFile && !url) return alert("Please provide an image");
 
   document.getElementById('loading').style.display = 'flex';
@@ -132,33 +134,48 @@ analyzeBtn.onclick = async () => {
   try {
     const res = await fetch('/predict', { method: 'POST', body: fd });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || data.message || "Analysis failed");
     
     document.getElementById('resImg').src = currentFile ? URL.createObjectURL(currentFile) : url;
     document.getElementById('verdictCard').className = `verdict-box ${data.is_real ? 'real' : 'fake'}`;
     document.getElementById('verdictText').textContent = data.prediction.toUpperCase();
     document.getElementById('confVal').textContent = data.confidence;
+    currentImageTempId = data.image_temp_id || null;
+    currentImageUrl = currentFile ? null : url;
     
     document.getElementById('view-upload').classList.remove('active');
     document.getElementById('view-result').classList.add('active');
+    document.getElementById('feedbackSection').style.opacity = '1';
+    document.getElementById('feedbackSection').style.pointerEvents = 'auto';
 
     // Handle Feedback
     const setupFeedback = (btnId, label) => {
       document.getElementById(btnId).onclick = async () => {
-        const fbData = new FormData();
-        fbData.append('correct_label', label);
-        fbData.append('image_url', document.getElementById('resImg').src);
-        
-        const fRes = await fetch('/feedback', { method: 'POST', body: fbData });
-        const fJson = await fRes.json();
-        alert(fJson.message);
-        document.getElementById('feedbackSection').style.opacity = '0.5';
-        document.getElementById('feedbackSection').style.pointerEvents = 'none';
+        try {
+          const fbData = new FormData();
+          fbData.append('correct_label', label);
+          if (currentImageTempId) fbData.append('image_temp_id', currentImageTempId);
+          else if (currentImageUrl) fbData.append('image_url', currentImageUrl);
+          else throw new Error("No image reference available for feedback");
+          
+          const fRes = await fetch('/feedback', { method: 'POST', body: fbData });
+          const fJson = await fRes.json();
+          if (!fRes.ok || fJson.status === 'error') {
+            throw new Error(fJson.detail || fJson.message || "Feedback failed");
+          }
+          alert(fJson.message);
+          currentImageTempId = null;
+          document.getElementById('feedbackSection').style.opacity = '0.5';
+          document.getElementById('feedbackSection').style.pointerEvents = 'none';
+        } catch (err) {
+          alert(err.message || "Feedback failed");
+        }
       };
     };
     setupFeedback('feedbackReal', 'Real');
     setupFeedback('feedbackFake', 'Fake');
 
-  } catch (err) { alert("Analysis failed"); }
+  } catch (err) { alert(err.message || "Analysis failed"); }
   document.getElementById('loading').style.display = 'none';
 };
 </script>
